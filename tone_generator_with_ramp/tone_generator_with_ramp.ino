@@ -4,238 +4,276 @@
 #include <Wire.h>
 #include "PT2258.h"
 
-
+// --------------------- Pin Definitions ----------------------
 #define FNC_PIN 2
-#define LED_PIN 8
-#define BUTTON_PIN 9
+#define CLOCK_PIN 8 // Was LED_PIN
+#define TRIGGER_PIN 9
 
-PT2258 pt2258(0x8C); // PT2258 Object
+// --------------------- Device Objects ------------------------
+PT2258 pt2258(0x8C);
 AD9833 waveGenerator(FNC_PIN);
+
+// -------------------- Global Variables -----------------------
 int frequencyList[] = {3000, 10000, 30000};
-int volumeList[] = {20,12,10}; // Default volume / Starting Volume
-int blinkCount = 0;
+int volumeList[] = {20, 12, 10}; // Default/Starting volumes
+int clockCount = 0;
 int frequencyIndex = 0;
 bool isRunning = false;
 
-static struct pt ptBlinkLED, ptGenerateTone;
+// Protothread control blocks
+static struct pt ptClockPulse, ptGenerateTone;
 
-// Protothread for blinking LED
-static int blinkLED(struct pt *pt) {
+// ------------------ Timing Constants -------------------------
+static const unsigned long CLOCK_HIGH_DURATION = 10; // HIGH time (ms)
+static const unsigned long CLOCK_LOW_DURATION = 40;  // LOW time (ms)
+static const unsigned long CLOCK_CYCLE_PAUSE = 5000; // Pause after N pulses
+static const int CLOCK_MAX_COUNT = 80;
+
+static const unsigned long RAMP_DELAY_US = 500; // 0.5 ms delay between attenuation steps
+static const int FREQUENCY_CYCLES = 30;
+static const int TONE_START_THRESHOLD = 29;
+static const int TONE_RAMP_DOWN_THRESHOLD = 49;
+
+// ------------------ Interrupt Service Routine ----------------
+void triggerISR()
+{
+    isRunning = !isRunning;
+}
+
+// -----------------------------------------------------------------------------
+// Protothread: Clock Pulse Generator (used as time base)
+// -----------------------------------------------------------------------------
+static int clockPulse(struct pt *pt)
+{
     static unsigned long lastTime = 0;
     PT_BEGIN(pt);
-    while (1) {
+    while (true)
+    {
         lastTime = millis();
-        PT_WAIT_UNTIL(pt, millis() - lastTime > 40);
-        digitalWrite(LED_PIN, HIGH);
+        PT_WAIT_UNTIL(pt, (millis() - lastTime) >= CLOCK_LOW_DURATION);
+        digitalWrite(CLOCK_PIN, HIGH);
+
         lastTime = millis();
-        PT_WAIT_UNTIL(pt, millis() - lastTime > 10);
-        digitalWrite(LED_PIN, LOW);
-        blinkCount++;
-        if (blinkCount > 79) {
+        PT_WAIT_UNTIL(pt, (millis() - lastTime) >= CLOCK_HIGH_DURATION);
+        digitalWrite(CLOCK_PIN, LOW);
+
+        clockCount++;
+        if (clockCount >= CLOCK_MAX_COUNT)
+        {
             lastTime = millis();
-            PT_WAIT_UNTIL(pt, millis() - lastTime > 5000);
-            blinkCount = 0;
+            PT_WAIT_UNTIL(pt, (millis() - lastTime) >= CLOCK_CYCLE_PAUSE);
+            clockCount = 0;
         }
     }
     PT_END(pt);
 }
 
-// Protothread for generating tones
-static int generateTone(struct pt *pt) {
+// -----------------------------------------------------------------------------
+// Protothread: Tone Generator
+// -----------------------------------------------------------------------------
+static int generateTone(struct pt *pt)
+{
     static unsigned long lastTime = 0;
     PT_BEGIN(pt);
-    
-    while (1) {
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+50,79));
-        // pt2258.attenuation(1, 80);
-        waveGenerator.ApplySignal(SINE_WAVE, REG0, frequencyList[frequencyIndex % 3]);
-        PT_WAIT_UNTIL(pt, blinkCount > 29);
-        waveGenerator.EnableOutput(true);
-        lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+40,79));
-        lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+30,79));
-        lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+20,79));
-        lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+16,79));
-        lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+15,79));
-        lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+14,79));
-        lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+13,79));
-        lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+12,79));
-        lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+11,79));
-        lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+10,79));
-        lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+9,79));
-        lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+8,79));
-        lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+7,79));
-        lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+6,79));
-        lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+5,79));
-        lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+4,79));
-        lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+3,79));
-        lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+2,79));
-        lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+1,79));
-        lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, volumeList[frequencyIndex % 3]);
-        
+    while (true)
+    {
+        int baseVolume = volumeList[frequencyIndex % 3];
+        int baseFreq = frequencyList[frequencyIndex % 3];
 
-        PT_WAIT_UNTIL(pt, blinkCount > 49);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+1,79));
+        pt2258.attenuation(1, min(baseVolume + 50, 79));
+        waveGenerator.ApplySignal(SINE_WAVE, REG0, baseFreq);
+
+        PT_WAIT_UNTIL(pt, clockCount > TONE_START_THRESHOLD);
+        waveGenerator.EnableOutput(true);
+
         lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+2,79));
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 40, 79));
         lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+3,79));
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 30, 79));
         lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+4,79));
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 20, 79));
         lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+5,79));
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 16, 79));
         lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+6,79));
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 15, 79));
         lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+7,79));
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 14, 79));
         lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+8,79));
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 13, 79));
         lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+9,79));
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 12, 79));
         lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+10,79));
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 11, 79));
         lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+11,79));
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 10, 79));
         lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+12,79));
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 9, 79));
         lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+13,79));
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 8, 79));
         lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+14,79));
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 7, 79));
         lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+15,79));
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 6, 79));
         lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+16,79));
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 5, 79));
         lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+20,79));
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 4, 79));
         lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+30,79));
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 3, 79));
         lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+40,79));
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 2, 79));
         lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
-        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3]+50,79));
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 1, 79));
+
         lastTime = micros();
-        PT_WAIT_UNTIL(pt, micros() - lastTime > 500);
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, volumeList[frequencyIndex % 3]);
+
+        PT_WAIT_UNTIL(pt, clockCount > TONE_RAMP_DOWN_THRESHOLD);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 1, 79));
+        lastTime = micros();
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 2, 79));
+        lastTime = micros();
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 3, 79));
+        lastTime = micros();
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 4, 79));
+        lastTime = micros();
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 5, 79));
+        lastTime = micros();
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 6, 79));
+        lastTime = micros();
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 7, 79));
+        lastTime = micros();
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 8, 79));
+        lastTime = micros();
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 9, 79));
+        lastTime = micros();
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 10, 79));
+        lastTime = micros();
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 11, 79));
+        lastTime = micros();
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 12, 79));
+        lastTime = micros();
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 13, 79));
+        lastTime = micros();
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 14, 79));
+        lastTime = micros();
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 15, 79));
+        lastTime = micros();
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 16, 79));
+        lastTime = micros();
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 20, 79));
+        lastTime = micros();
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 30, 79));
+        lastTime = micros();
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 40, 79));
+        lastTime = micros();
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+        pt2258.attenuation(1, min(volumeList[frequencyIndex % 3] + 50, 79));
+        lastTime = micros();
+        PT_WAIT_UNTIL(pt, micros() - lastTime > RAMP_DELAY_US);
+
         pt2258.attenuation(1, 79);
         waveGenerator.EnableOutput(false);
-        
-        PT_WAIT_UNTIL(pt, blinkCount > 79);
+
+        PT_WAIT_UNTIL(pt, clockCount >= CLOCK_MAX_COUNT);
         lastTime = millis();
-        PT_WAIT_UNTIL(pt, millis() - lastTime > 5000);
-        if (blinkCount == 80) {
-            blinkCount = 0;
-        }
+        PT_WAIT_UNTIL(pt, (millis() - lastTime) >= CLOCK_CYCLE_PAUSE);
+        clockCount = 0;
+
         frequencyIndex++;
     }
     PT_END(pt);
 }
 
-void setup() {
-    waveGenerator.Begin();
+// -----------------------------------------------------------------------------
+// Setup
+// -----------------------------------------------------------------------------
+void setup()
+{
     Serial.begin(9600);
-    pinMode(LED_PIN, OUTPUT);
-    pinMode(FNC_PIN, OUTPUT);
-    pinMode(BUTTON_PIN, INPUT_PULLUP);
+    waveGenerator.Begin();
     waveGenerator.EnableOutput(false);
-    digitalWrite(LED_PIN, LOW);
-    PT_INIT(&ptBlinkLED);
+
+    pinMode(CLOCK_PIN, OUTPUT);
+    pinMode(FNC_PIN, OUTPUT);
+    pinMode(TRIGGER_PIN, INPUT_PULLUP);
+    attachInterrupt(digitalPinToInterrupt(TRIGGER_PIN), triggerISR, RISING);
+
+    digitalWrite(CLOCK_PIN, LOW);
+    PT_INIT(&ptClockPulse);
     PT_INIT(&ptGenerateTone);
-    Wire.setClock(400000); // setting the I2C clock to 100KHz
-    /* checking if the MCU can talk with the PT or not*/
+
+    Wire.setClock(400000);
     if (!pt2258.begin())
-      Serial.println("PT2258 Successfully Initiated");
+    {
+        Serial.println("PT2258 Successfully Initiated");
+    }
     else
-      Serial.println("Failed to Initiate PT2258");
-    /* Initiating PT with default volume and Pin*/
+    {
+        Serial.println("Failed to Initiate PT2258");
+    }
+
     pt2258.mute(false);
     pt2258.attenuation(1, 79);
 }
 
-void loop() {
-    int currentButtonState = digitalRead(BUTTON_PIN);
-    static int previousButtonState = HIGH;
-    Serial.println(blinkCount);
-    if (frequencyIndex == 30) {
+// -----------------------------------------------------------------------------
+// Main Loop
+// -----------------------------------------------------------------------------
+void loop()
+{
+    Serial.println(clockCount);
+    if (frequencyIndex == FREQUENCY_CYCLES)
+    {
         waveGenerator.EnableOutput(false);
-        digitalWrite(LED_PIN, LOW);
-        previousButtonState = HIGH;
-        isRunning = !isRunning;
-        blinkCount = 0;
+        digitalWrite(CLOCK_PIN, LOW);
+        isRunning = false;
+        clockCount = 0;
         frequencyIndex = 0;
         return;
     }
 
-    if (currentButtonState == LOW && previousButtonState == HIGH) {
-        delay(50); // Debounce delay
-        if (digitalRead(BUTTON_PIN) == LOW) {
-            delay(3000);
-            isRunning = !isRunning;
-        }
-    }
-
-    if (isRunning) {
-        // waveGenerator.EnableOutput(true);
-        blinkLED(&ptBlinkLED);
+    if (isRunning)
+    {
+        clockPulse(&ptClockPulse);
         generateTone(&ptGenerateTone);
     }
-
-    previousButtonState = currentButtonState;
 }
