@@ -260,7 +260,7 @@ void setup()
 // -----------------------------------------------------------------------------
 void loop()
 {
-    int currentButtonState = digitalRead(BUTTON_PIN);
+    int currentButtonState = digitalRead(TRIGGER_PIN);
     static int previousButtonState = HIGH;
 
     Serial.println(clockCount);
@@ -278,7 +278,7 @@ void loop()
     if (currentButtonState == LOW && previousButtonState == HIGH)
     {
         delay(50); // Debounce delay
-        if (digitalRead(BUTTON_PIN) == LOW)
+        if (digitalRead(TRIGGER_PIN) == LOW)
         {
             delay(3000);
             isRunning = !isRunning;
